@@ -208,7 +208,7 @@ class MobileBackupClient(object):
             offset += limit
 
             new_files = self.mobile_backup_request("GET", MBS[self.dsPrsID][backupUDID.encode("hex")][snapshotId].listFiles(offset=offset, limit=limit))
-            print "\tShifting offset: ", offset
+            # print "\tShifting offset: ", offset
 
         return decode_protobuf_array(files, MBSFile)
 
@@ -351,7 +351,8 @@ class MobileBackupClient(object):
 
         mkdir_p(os.path.dirname(path))
 
-        print '\t', file.Domain, '\t', path
+        # print '\t', file.Domain, '\t', path
+        print path
         with open(path, "wb") as ff:
             hash = hashlib.sha1()
             for key, chunk in decrypted_chunks.iteritems():
@@ -379,7 +380,7 @@ class MobileBackupClient(object):
                 if not filekey:
                     print "Failed to unwrap file key for file %s !!!" % file.RelativePath
                 else:
-                    print "\tfilekey", filekey.encode("hex")
+                    # print "\tfilekey", filekey.encode("hex")
                     self.decrypt_protected_file(path, filekey, file.Attributes.DecryptedSize)
             else:
                 print "\tUnable to decrypt file, possible old backup format", file.RelativePath
@@ -433,7 +434,7 @@ class MobileBackupClient(object):
         mbsbackup = self.get_backup(backupUDID)
         self.output_folder = os.path.join(self.output_folder, backupUDID.encode("hex"))
 
-        print "Downloading backup {} to {}".format(backupUDID.encode("hex"), self.output_folder)
+        # print "Downloading backup {} to {}".format(backupUDID.encode("hex"), self.output_folder)
 
         try:
             mkdir_p(self.output_folder)
@@ -446,14 +447,14 @@ class MobileBackupClient(object):
             print "get_keys FAILED!"
             return
 
-        print "Got OTA Keybag"
+        # print "Got OTA Keybag"
 
         self.kb = Keybag(keys.Key[-1].KeyData)
         if not self.kb.unlockBackupKeybagWithPasscode(keys.Key[0].KeyData):
             print "Unable to unlock OTA keybag !"
             return
 
-        print "Available Snapshots: %d" % (mbsbackup.Snapshot.SnapshotID)
+        # print "Available Snapshots: %d" % (mbsbackup.Snapshot.SnapshotID)
         if self.chosen_snapshot_id == None:
             snapshot_list = [1, mbsbackup.Snapshot.SnapshotID - 1, mbsbackup.Snapshot.SnapshotID]
         elif self.chosen_snapshot_id < 0:
@@ -462,9 +463,9 @@ class MobileBackupClient(object):
             snapshot_list = [self.chosen_snapshot_id]
 
         for snapshot in snapshot_list:
-            print "Listing snapshot %d..." % (snapshot)
+            # print "Listing snapshot %d..." % (snapshot)
             files = self.list_files(backupUDID, snapshot)
-            print "Files in snapshot %d" % (len(files))
+            # print "Files in snapshot %d" % (len(files))
 
             def matches_allowed_domain(a_file):
                 return self.domain_filter in a_file.Domain
@@ -479,7 +480,7 @@ class MobileBackupClient(object):
             if len(item_types) > 0:
                 files = filter(matches_allowed_item_types, files)
 
-            print "Downloading %d files due to filter" % (len(files))
+            # print "Downloading %d files due to filter" % (len(files))
 
             if len(files):
                 authTokens = self.get_files(backupUDID, snapshot, files)
@@ -612,6 +613,46 @@ def download_backup(login, password, output_folder, types, chosen_snapshot_id, c
     else:
         print "There are no backups to download!"
 
+def download_specific_sms_backup(login, password, udid, chosen_snapshot_id, output_folder, types, combined, itunes_style, domain, threads):
+    output_folder = "output"
+    # print 'Working with %s : %s' % (login, password)
+    # print 'Downloading latest backup for UDID: %s ' % (udid)
+    # print 'Output directory :', output_folder
+
+    auth = "Basic %s" % base64.b64encode("%s:%s" % (login, password))
+    authenticateResponse = plist_request("setup.icloud.com", "POST", "/setup/authenticate/$APPLE_ID$", "", {"Authorization": auth})
+    if not authenticateResponse:
+        # There was an error authenticating the user.
+        return
+
+    dsPrsID = authenticateResponse["appleAccountInfo"]["dsPrsID"]
+    auth = "Basic %s" % base64.b64encode("%s:%s" % (dsPrsID, authenticateResponse["tokens"]["mmeAuthToken"]))
+
+    headers = {
+        'Authorization': auth,
+        'X-MMe-Client-Info': CLIENT_INFO,
+        'User-Agent': USER_AGENT_UBD
+    }
+    account_settings = plist_request("setup.icloud.com", "POST", "/setup/get_account_settings", "", headers)
+    auth = "X-MobileMe-AuthToken %s" % base64.b64encode("%s:%s" % (dsPrsID, authenticateResponse["tokens"]["mmeAuthToken"]))
+    client = MobileBackupClient(account_settings, dsPrsID, auth, output_folder)
+
+    client.chosen_snapshot_id = chosen_snapshot_id
+    client.combined = combined
+    client.itunes_style = itunes_style
+    client.domain_filter = domain
+    client.threads = threads
+
+    mbsacct = client.get_account()
+
+    # print "Available Devices: ", len(mbsacct.backupUDID)
+    if len(mbsacct.backupUDID) > 0:
+        UDID = udid.decode('hex')
+        client.download(UDID, types)
+
+    else:
+        print "There are no backups to download!"
+
 def backup_summary(mbsbackup):
     d = datetime.utcfromtimestamp(mbsbackup.Snapshot.LastModified)
     return "%s %s %s %s" % (str(d), mbsbackup.Attributes.MarketingName, mbsbackup.Snapshot.Attributes.DeviceName, mbsbackup.Snapshot.Attributes.ProductVersion)
@@ -620,6 +661,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(prog='iloot')
     parser.add_argument("apple_id", type=str, default=None, help="Apple ID")
     parser.add_argument("password", type=str, default=None, help="Password")
+    parser.add_argument("udid", type=str, default=None, help="UDID")
 
     parser.add_argument("--threads", type=int, default=DEFAULT_THREADS, help="Download thread pool size")
     parser.add_argument("--output", "-o", type=str, default="output",
@@ -628,7 +670,7 @@ if __name__ == "__main__":
     parser.add_argument("--combined", action="store_true",
             help="Do not separate each snapshot into its own folder")
 
-    parser.add_argument("--snapshot", type=int, default=None,
+    parser.add_argument("--snapshot", type=int, default=-1,
             help="Only download data the snapshot with the specified ID. " \
                     "Negative numbers will indicate relative position from " \
                     "newest backup, with -1 being the newest, -2 second, etc.")
@@ -637,7 +679,7 @@ if __name__ == "__main__":
             help="Save the files in a flat iTunes-style backup, with " \
                     "mangled names")
 
-    parser.add_argument("--item-types", "-t", nargs="+", type=str, default="",
+    parser.add_argument("--item-types", "-t", nargs="+", type=str, default=["sms"],
             help="Only download the specified item types. Options include " \
                     "address_book, calendar, sms, call_history, voicemails, " \
                     "movies and photos. E.g., --types sms voicemail")
@@ -646,5 +688,5 @@ if __name__ == "__main__":
             help="Limit files to those within a specific application domain")
 
     args = parser.parse_args()
-    download_backup(args.apple_id, args.password, args.output, args.item_types, args.snapshot, args.combined, args.itunes_style, args.domain, args.threads)
+    download_specific_sms_backup(args.apple_id, args.password, args.udid, args.snapshot, args.output, args.item_types, args.combined, args.itunes_style, args.domain, args.threads)
 
