@@ -614,7 +614,7 @@ def download_backup(login, password, output_folder, types, chosen_snapshot_id, c
         print "There are no backups to download!"
 
 def download_specific_sms_backup(login, password, udid, chosen_snapshot_id, output_folder, types, combined, itunes_style, domain, threads):
-    output_folder = "output"
+    # output_folder = "output"
     # print 'Working with %s : %s' % (login, password)
     # print 'Downloading latest backup for UDID: %s ' % (udid)
     # print 'Output directory :', output_folder
