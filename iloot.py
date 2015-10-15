@@ -39,9 +39,12 @@ ITEM_TYPES_TO_FILE_NAMES = {
     'address_book': "addressbook.sqlitedb",
     'calendar': "Calendar.sqlitedb",
     'call_history': "call_history.db",
-    'photos': ".jpg",
+    'jpg_photos': ".jpg",
+    'jpeg_photos': ".jpeg",
+    'png_photos': ".png",
     'movies':".mov",
     'sms': "sms.db",
+    'sms_attachments': "sms/attachments",
     'voicemails': "voicemail",
     'notes' : "notes."
 }
@@ -352,7 +355,9 @@ class MobileBackupClient(object):
         mkdir_p(os.path.dirname(path))
 
         # print '\t', file.Domain, '\t', path
-        print path
+        if "sms.db" in path:
+            print path
+
         with open(path, "wb") as ff:
             hash = hashlib.sha1()
             for key, chunk in decrypted_chunks.iteritems():
@@ -561,58 +566,6 @@ class MobileBackupClient(object):
         # Close file
         mbdb_file.close()
 
-
-def download_backup(login, password, output_folder, types, chosen_snapshot_id, combined, itunes_style, domain, threads):
-    print 'Working with %s : %s' % (login, password)
-    print 'Output directory :', output_folder
-
-    auth = "Basic %s" % base64.b64encode("%s:%s" % (login, password))
-    authenticateResponse = plist_request("setup.icloud.com", "POST", "/setup/authenticate/$APPLE_ID$", "", {"Authorization": auth})
-    if not authenticateResponse:
-        # There was an error authenticating the user.
-        return
-
-    dsPrsID = authenticateResponse["appleAccountInfo"]["dsPrsID"]
-    auth = "Basic %s" % base64.b64encode("%s:%s" % (dsPrsID, authenticateResponse["tokens"]["mmeAuthToken"]))
-
-    headers = {
-        'Authorization': auth,
-        'X-MMe-Client-Info': CLIENT_INFO,
-        'User-Agent': USER_AGENT_UBD
-    }
-    account_settings = plist_request("setup.icloud.com", "POST", "/setup/get_account_settings", "", headers)
-    auth = "X-MobileMe-AuthToken %s" % base64.b64encode("%s:%s" % (dsPrsID, authenticateResponse["tokens"]["mmeAuthToken"]))
-    client = MobileBackupClient(account_settings, dsPrsID, auth, output_folder)
-
-    client.chosen_snapshot_id = chosen_snapshot_id
-    client.combined = combined
-    client.itunes_style = itunes_style
-    client.domain_filter = domain
-    client.threads = threads
-
-    mbsacct = client.get_account()
-
-    print "Available Devices: ", len(mbsacct.backupUDID)
-    if len(mbsacct.backupUDID) > 0:
-        for i, device in enumerate(mbsacct.backupUDID):
-            backup = client.get_backup(device)
-            print "===[", i, "]==="
-            print "\tUDID: ", backup.backupUDID.encode("hex")
-            print "\tDevice: ", backup.Attributes.MarketingName
-            print "\tSize: ", hurry.filesize.size(backup.QuotaUsed)
-            print "\tLastUpdate: ", datetime.utcfromtimestamp(backup.Snapshot.LastModified)
-
-        if i == 0:
-            UDID = mbsacct.backupUDID[0]
-        else:
-            id = raw_input("\nSelect backup to download (0-{}): ".format(i))
-            UDID = mbsacct.backupUDID[int(id)]
-
-        client.download(UDID, types)
-
-    else:
-        print "There are no backups to download!"
-
 def download_specific_sms_backup(login, password, udid, chosen_snapshot_id, output_folder, types, combined, itunes_style, domain, threads):
     # output_folder = "output"
     # print 'Working with %s : %s' % (login, password)
@@ -679,10 +632,10 @@ if __name__ == "__main__":
             help="Save the files in a flat iTunes-style backup, with " \
                     "mangled names")
 
-    parser.add_argument("--item-types", "-t", nargs="+", type=str, default=["sms"],
+    parser.add_argument("--item-types", "-t", nargs="+", type=str, default=["sms", "sms_attachments"],
             help="Only download the specified item types. Options include " \
                     "address_book, calendar, sms, call_history, voicemails, " \
-                    "movies and photos. E.g., --types sms voicemail")
+                    "movies and photos. E.g., --item-types sms voicemail")
 
     parser.add_argument("--domain", "-d", type=str, default=None,
             help="Limit files to those within a specific application domain")
